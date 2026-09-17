@@ -112,6 +112,10 @@ class CheckerAPI:
                 "cipai_count": len(self.kb.cipai),
                 "categories": len(self.kb.categories),
                 "max_text_chars": MAX_TEXT_CHARS,
+                # 便于排查「页面 404」类故障：服务到底在哪儿、前端目录还在不在
+                "project_dir": str(self.kb.root.parent),
+                "web_dir": str(self.kb.root.parent / "web"),
+                "web_ok": (self.kb.root.parent / "web").is_dir(),
             },
         )
 

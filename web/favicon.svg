@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="律">
+  <rect width="64" height="64" rx="12" fill="#8c2f39"/>
+  <rect x="4.5" y="4.5" width="55" height="55" rx="8.5" fill="none"
+        stroke="#ffffff" stroke-opacity="0.3" stroke-width="2"/>
+  <text x="32" y="47" font-size="38" text-anchor="middle" fill="#ffffff"
+        font-family="Songti SC, SimSun, serif">律</text>
+</svg>

@@ -462,6 +462,13 @@ class TestAPI(unittest.TestCase):
         self.assertGreater(r.payload["cipai_count"], 20)
         self.assertGreater(r.payload["books_info"]["平水韵"]["chars"], 3000)
 
+    def test_meta带前端目录信息(self):
+        """便于排查「页面全 404」：服务到底在哪、web/ 还在不在。"""
+        r = self.api.handle("/api/meta", "GET")
+        self.assertEqual(r.payload["web_ok"], True)
+        self.assertTrue(r.payload["web_dir"].endswith("web"))
+        self.assertTrue(Path(r.payload["project_dir"]).is_dir())
+
     def test_cipai列表(self):
         r = self.api.handle("/api/cipai", "GET")
         self.assertEqual(r.status, 200)
@@ -605,6 +612,37 @@ class TestHTTPServer(unittest.TestCase):
             with self.assertRaises(urllib.error.HTTPError, msg=path) as ctx:
                 self._get(path)
             self.assertEqual(ctx.exception.code, 404)
+
+    def test_缺失的静态文件给出可诊断页面(self):
+        """页面 404 不能只丢一句 JSON —— 使用者看不懂。
+
+        这条来自一次真实故障：一个指向**已删除目录**的残留服务占着端口，
+        结果连首页都打不开，浏览器里只有 {"ok": false, "error": "文件不存在"}，
+        完全看不出是「项目被挪走了」还是「端口上是别的进程」。
+        """
+        import urllib.error
+
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/nope")
+        self.assertEqual(ctx.exception.code, 404)
+        ctype = ctx.exception.headers.get("Content-Type", "")
+        self.assertIn("text/html", ctype)
+        body = ctx.exception.read().decode("utf-8")
+        self.assertIn("前端目录", body)       # 把服务实际用的目录摆出来
+        self.assertIn("web", body)
+        self.assertIn("/api/meta", body)      # 给出可自证的入口
+
+    def test_favicon不再404(self):
+        """浏览器会顺手要 /favicon.ico；给 204 而不是 404，免得控制台刷红。"""
+        status, ctype, body = self._get("/favicon.ico")
+        self.assertEqual(status, 204)
+        self.assertEqual(body, b"")
+
+    def test_站点图标可访问(self):
+        status, ctype, body = self._get("/favicon.svg")
+        self.assertEqual(status, 200)
+        self.assertIn("svg", ctype)
+        self.assertIn(b"<svg", body)
 
     def test_非法JSON被拒绝(self):
         import urllib.error

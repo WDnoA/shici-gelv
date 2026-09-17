@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import html as _html
 import json
 import mimetypes
 import socket
@@ -45,6 +46,77 @@ for _ext, _ctype in (
 
 def _fail(status: int, message: str) -> bytes:
     return json.dumps({"ok": False, "error": message}, ensure_ascii=False).encode("utf-8")
+
+
+def not_found_page(requested: str) -> bytes:
+    """静态文件缺失时给出的**可诊断**页面。
+
+    这个页面是被真实故障逼出来的：开发过程中，一个指向已删除临时目录的
+    残留进程占着端口，结果**连首页都打不开**，浏览器里只有一句
+    ``{"ok": false, "error": "文件不存在"}``，完全看不出发生了什么。
+
+    使用者能遇到的同类情形：把项目文件夹挪了位置、改了名，或删过一份解压副本
+    却忘了停服务。所以这里必须把「服务实际在用的目录」摆出来。
+    """
+    web = WEB_DIR
+    exists = web.is_dir()
+    listing = ""
+    if exists:
+        names = sorted(p.name for p in web.iterdir() if p.is_file())
+        listing = "、".join(names) if names else "（空目录）"
+
+    safe_path = _html.escape(requested)
+    status_cls = "good" if exists else "bad"
+    status_txt = "存在" if exists else "不存在"
+    listing_html = (
+        f'<div>其中的文件：<code>{_html.escape(listing)}</code></div>' if exists else ""
+    )
+
+    doc = f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>找不到页面 · 诗词格律校验器</title>
+<style>
+ body{{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+      background:#f6f3ed;color:#2b2723;max-width:680px;margin:8vh auto;
+      padding:0 24px;line-height:1.85}}
+ h1{{font-size:20px;color:#8c2f39;margin-bottom:14px}}
+ code{{background:#fffdf9;border:1px solid #e7e1d7;border-radius:4px;
+      padding:1px 6px;font-size:13px;word-break:break-all}}
+ .box{{background:#fffdf9;border:1px solid #e7e1d7;border-radius:10px;
+      padding:14px 20px;margin:18px 0}}
+ .box div{{margin:4px 0}}
+ .bad{{color:#b02a2a;font-weight:600}} .good{{color:#2f7d4f;font-weight:600}}
+ ol{{padding-left:1.4em}} li{{margin:6px 0}}
+ a{{color:#8c2f39}}
+</style></head><body>
+<h1>找不到「{safe_path}」</h1>
+
+<div class="box">
+  <div>服务在用的前端目录：</div>
+  <div><code>{_html.escape(str(web))}</code></div>
+  <div>该目录：<span class="{status_cls}">{status_txt}</span></div>
+  {listing_html}
+</div>
+
+<p>连首页都打不开，通常只有两个原因：</p>
+<ol>
+  <li><b>项目文件夹被移动、重命名或删除了</b>，而服务还指向旧位置。</li>
+  <li><b>端口上跑着另一个残留进程</b>——例如你曾解压过一份副本、
+      删掉了那份，但它的服务没有停。</li>
+</ol>
+
+<p>处理办法：</p>
+<ol>
+  <li>双击 <code>停止校验器.bat</code>，把所有相关服务停掉；</li>
+  <li>重新双击 <code>启动校验器.bat</code>；</li>
+  <li>若仍打不开，请确认 <code>web/</code> 目录还在项目根目录下
+      （里面有 <code>index.html</code>、<code>style.css</code>、<code>app.js</code>）。</li>
+</ol>
+
+<p>接口本身是好的，可直接验证：<a href="/api/meta">/api/meta</a></p>
+</body></html>"""
+    return doc.encode("utf-8")
 
 
 def resolve_static(url_path: str) -> Optional[Path]:
@@ -86,14 +158,22 @@ def make_handler(api: CheckerAPI) -> Type[BaseHTTPRequestHandler]:
 
         def do_GET(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
+
             if path.startswith("/api/"):
                 resp = api.handle(path, "GET")
                 self._json(resp.status, resp.to_json())
                 return
 
+            # 页面里已声明 SVG 图标；浏览器仍会顺手要一次 /favicon.ico。
+            # 回 204，省得控制台里多一条刺眼的红色 404。
+            if path == "/favicon.ico":
+                self._send(204, b"", "image/x-icon")
+                return
+
             file = resolve_static(self.path)
             if file is None:
-                self._send(404, _fail(404, "文件不存在"), "application/json; charset=utf-8")
+                # 不用 JSON —— 这是浏览器在看页面，得给能看懂的东西
+                self._send(404, not_found_page(path), "text/html; charset=utf-8")
                 return
             ctype, _encoding = mimetypes.guess_type(str(file))
             if ctype and ctype.startswith("text/"):
@@ -191,8 +271,12 @@ def serve(
         print(f"  服务已启动：  {url}")
         print(f"  接口：  POST {url}api/check")
         print(f"          GET  {url}api/meta    GET {url}api/cipai")
+        print(f"  前端目录：    {WEB_DIR}")
         print("  停服务：在这个窗口按 Ctrl+C，或直接关掉窗口")
         print("  " + "─" * 52)
+        print()
+        print("  提示：服务运行期间请不要移动或重命名本文件夹，")
+        print("        否则前端文件会找不到（重启即可恢复）。")
         print()
 
     if open_browser:
