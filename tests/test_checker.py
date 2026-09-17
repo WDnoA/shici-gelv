@@ -12,21 +12,35 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for _p in (str(ROOT), str(ROOT / "tests")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from poetry_checker import KnowledgeBase, analyze  # noqa: E402
 from poetry_checker import ci as ci_mod  # noqa: E402
 from poetry_checker import checker as poem_mod  # noqa: E402
 from poetry_checker import patterns as pt  # noqa: E402
 from poetry_checker.knowledge import CILIN, PINGSHUI, 平, 仄  # noqa: E402
+import fixtures as fx  # noqa: E402
+from fixtures import 固件  # noqa: E402
 
 KB = KnowledgeBase.load()
 示例 = ROOT / "示例"
 
 
 def 读(name: str) -> str:
-    return (示例 / name).read_text(encoding="utf-8")
+    """取测试固件。
+
+    **刻意不读 ``示例/``**：那是给使用者看的展示目录，使用者可以随意改动
+    （事实上就改过——见 ``tests/fixtures.py`` 的说明）。测试必须依赖
+    自己冻结的文本，否则使用者一个正常操作就能把测试搞挂。
+    """
+    key = Path(name).stem
+    if key not in 固件:
+        raise AssertionError(
+            f"没有为「{name}」准备测试固件，请在 tests/fixtures.py 的「固件」字典里补上"
+        )
+    return 固件[key]
 
 
 # ---------------------------------------------------------------- 知识库
@@ -229,11 +243,18 @@ class Test词(unittest.TestCase):
 
 
 class Test输出(unittest.TestCase):
-    def test_文本报告不抛异常(self):
-        for name in sorted(示例.glob("*.txt")):
+    def test_示例目录可正常解析(self):
+        """对真实的 示例/ 做健壮性检查。
+
+        只断言「不抛异常、能出报告」，**不假设任何具体内容**——
+        使用者随时可以改动示例文件，这不该让测试失败。
+        """
+        files = sorted(示例.glob("*.txt"))
+        self.assertTrue(files, "示例目录为空")
+        for name in files:
             r = analyze(name.read_text(encoding="utf-8"))
             text = r.text(color=False, verbose=True)
-            self.assertIn(r.kind, ("近体诗", "词", "未知"))
+            self.assertIn(r.kind, ("近体诗", "词", "未知"), name.name)
             self.assertGreater(len(text), 100, name.name)
 
     def test_json可序列化(self):
@@ -387,6 +408,38 @@ class Test句读诊断(unittest.TestCase):
     def test_断句正确时不出现句读对照(self):
         r = analyze(读("05-词-水调歌头.txt"))
         self.assertEqual(r.ci.break_segments, [])
+
+    def test_按报告改定后应合谱(self):
+        """回归：使用者照报告改过之后，结果确实变好了。
+
+        这条测试锁住的是「建议的有效性」——如果哪天改动了句读判定或韵书数据，
+        导致修订稿不再合谱，就说明有东西被改坏了。
+        """
+        r = analyze(fx.修订稿_中秋寄魏晓彤, kb=KB)
+        self.assertEqual(r.kind, "词")
+        self.assertEqual(r.ci.cipai, "水调歌头")
+        self.assertEqual(r.ci.verdict, "合谱")
+        self.assertTrue(r.ci.char_ok)
+        self.assertEqual(r.ci.break_segments, [])
+        self.assertEqual(r.ci.rhyme_groups[0].main_group, "第一部")
+        self.assertTrue(all(g.ok for g in r.ci.rhyme_groups))
+
+    def test_修订稿与实际示例文件一致(self):
+        """提醒：若使用者又改了 示例/10，这条会失败，提示同步固件。
+
+        这不是「测试不该依赖示例」的例外——恰恰相反，
+        它专门用来发现「示例与固件脱节」，方便维护者及时同步。
+        """
+        path = 示例 / "10-用户投稿-水调歌头-中秋寄魏晓彤.txt"
+        if not path.exists():
+            self.skipTest("示例文件已被移除")
+        actual = path.read_text(encoding="utf-8").strip()
+        known = {fx.旧稿_中秋寄魏晓彤.strip(), fx.修订稿_中秋寄魏晓彤.strip()}
+        if actual not in known:
+            self.skipTest(
+                "示例文件已被使用者再次修改（属正常操作，跳过）。"
+                "如需锁住当前版本，请把内容同步到 tests/fixtures.py"
+            )
 
 
 # ---------------------------------------------------------------- API

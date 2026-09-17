@@ -1,0 +1,34 @@
+MIT License
+
+Copyright (c) 2026 诗词格律校验器 contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+────────────────────────────────────────────────────────────────────────
+
+关于知识库数据（补充说明）
+
+本项目代码以 MIT 协议授权。知识库目录下的韵书、词谱、对仗分类等数据，
+整理自《佩文韵府》（清）、《词林正韵》（清·戈载）、《钦定词谱》（清）、
+《中华新韵（十四韵）》（中华诗词学会，2005）等**已进入公有领域**的典籍，
+以及王力《汉语诗律学》、龙榆生《唐宋词格律》等现代著作所列的**规则与归类**
+（规则本身不受著作权保护）。数据仅供学习研究使用，
+正式场合请以纸质韵书为准。
+
+若你要替换作者署名，请修改上面的 Copyright 行。
