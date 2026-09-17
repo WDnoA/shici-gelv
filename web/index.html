@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>诗词格律校验器</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="seal">律</span>
+    <div class="brand-text">
+      <h1>诗词格律校验器</h1>
+      <p>以知识库为尺，量诗词之律 · 不含 AI，只做校验</p>
+    </div>
+  </div>
+  <div class="meta" id="meta"></div>
+</header>
+
+<main class="layout">
+
+  <section class="pane input-pane">
+    <div class="pane-head">
+      <h2>诗稿</h2>
+      <div class="controls">
+        <label class="field">
+          <span>韵书</span>
+          <select id="book"></select>
+        </label>
+        <label class="field">
+          <span>体裁</span>
+          <select id="shape">
+            <option value="auto">自动识别</option>
+            <option value="诗">近体诗</option>
+            <option value="词">词</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <textarea id="text" spellcheck="false" placeholder="在这里粘贴诗词……
+
+《水调歌头·中秋寄魏晓彤》
+玉宇澄清夜，冰轮碾碧穹。
+桂影婆娑处，清辉漫洒芳丛。
+……"></textarea>
+
+    <div class="actions">
+      <select id="samples" class="samples">
+        <option value="">载入示例…</option>
+      </select>
+      <button id="clear" class="ghost" type="button">清空</button>
+      <button id="run" class="primary" type="button">校 验</button>
+    </div>
+
+    <p class="hint">
+      不打标点也行，程序会按 5 字或 7 字自动分句；填词请把词牌写进标题
+      （<code>《浣溪沙》</code> 或 <code>浣溪沙·一曲新词酒一杯</code>）。
+    </p>
+    <p class="hint short">Ctrl / ⌘ + Enter 快速校验</p>
+  </section>
+
+  <section class="pane result-pane" id="result">
+    <div class="empty">
+      <div class="empty-mark">平&nbsp;仄</div>
+      <p>左侧粘贴诗稿，点「校 验」</p>
+      <p class="dim">报告会指出出律位置、韵部归属与修改建议</p>
+    </div>
+  </section>
+
+</main>
+
+<div id="tooltip" class="tooltip" hidden></div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
