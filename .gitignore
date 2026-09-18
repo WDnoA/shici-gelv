@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 打包产物（用 打包分发.bat 重新生成）
+诗词格律校验器.zip
+*.zip
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

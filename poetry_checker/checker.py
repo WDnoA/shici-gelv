@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from . import duizhang as dz
 from . import patterns as pt
@@ -89,6 +89,11 @@ class PoemResult:
             for c in cl.unknown:
                 out.append((cl.index, c))
         return out
+
+    @property
+    def coverage(self) -> Tuple[int, int]:
+        """(已判定字数, 总字数)。符合度只在这些字上成立。"""
+        return pt.coverage_stats(self.clauses)
 
     @property
     def serious(self) -> List[Tuple[int, pt.Issue]]:

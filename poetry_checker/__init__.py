@@ -15,8 +15,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, Tuple
 
 from . import ci, checker, report
 from .knowledge import CILIN, PINGSHUI, XINYUN, KnowledgeBase, KnowledgeError
@@ -65,6 +65,15 @@ class AnalysisResult:
             return self.ci.score
         return 0.0
 
+    @property
+    def coverage(self) -> Tuple[int, int]:
+        """(已判定字数, 总字数)。``score`` 只在这些字上成立。"""
+        if self.poem:
+            return self.poem.coverage
+        if self.ci:
+            return self.ci.coverage
+        return (0, 0)
+
     def text(self, color: bool = False, verbose: bool = True) -> str:
         if self.poem:
             return report.render_poem(self.poem, color=color, verbose=verbose)
@@ -82,10 +91,12 @@ class AnalysisResult:
 
         刻意不包含 ``kb``（知识库实例不可序列化，前端也用不上）。
         """
+        known, total = self.coverage
         return {
             "kind": self.kind,
             "ok": self.ok,
             "score": self.score,
+            "coverage": {"known": known, "total": total},
             "message": self.message,
             "parsed": report._plain(self.parsed),
             "poem": report._plain(self.poem) if self.poem else None,

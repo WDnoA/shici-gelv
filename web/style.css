@@ -265,6 +265,8 @@ button.primary:disabled { opacity: .55; cursor: default; transform: none; }
 .info-item { display: flex; gap: 8px; font-size: 13px; }
 .info-item .k { color: var(--ink-3); flex: none; min-width: 52px; }
 .info-item .v { color: var(--ink); }
+/* 未判定字数 > 0 时提醒：符合度只就已经查过的字而言 */
+.info-item .v.cov-warn { color: var(--warn); }
 
 .skeleton {
   font-family: var(--sf-mono, ui-monospace, monospace);

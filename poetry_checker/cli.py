@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """命令行入口。
 
-    python main.py 示例/静夜思.txt
+    python main.py 示例/01-五言绝句-登鹳雀楼.txt
     python main.py -t "国破山河在，城春草木深。"
     type 诗.txt | python main.py
     python main.py --verify-kb
     python main.py --list-cipai
+    python main.py --expect 示例
+    python main.py --serve
 """
 
 from __future__ import annotations
@@ -138,6 +140,49 @@ def list_cipai(kb: KnowledgeBase) -> int:
     return 0
 
 
+def expect_table(kb: KnowledgeBase, directory: str = "示例") -> int:
+    """扫描目录，打印一张 Markdown 结论表。
+
+    这张表就是 ``示例/README.md`` 里的「预期结论」。示例文件一旦被改动，
+    文档就会失真——本项目已经发生过一次（使用者把示例 10 改好了，
+    文档却还写着「出韵」）。与其靠人记得同步，不如让文档可一键重算：
+
+        python main.py --expect 示例
+
+    把输出粘回文档即可。
+    """
+    folder = Path(directory)
+    if not folder.is_dir():
+        print(f"找不到目录：{folder}", file=sys.stderr)
+        return 2
+
+    files = sorted(folder.glob("*.txt"))
+    if not files:
+        print(f"{folder} 里没有 .txt 文件", file=sys.stderr)
+        return 2
+
+    print("| 文件 | 体裁 | 结论 | 韵部 | 平仄符合度 |")
+    print("| --- | --- | --- | --- | --- |")
+    for path in files:
+        result = analyze(_decode(path.read_bytes()), kb=kb)
+        obj = result.poem or result.ci
+        genre = result.poem.genre if result.poem else (result.ci.cipai if result.ci else "—")
+        verdict = obj.verdict if obj else "无法识别"
+
+        group = ""
+        if result.poem and result.poem.rhyme and result.poem.rhyme.main_group:
+            group = result.poem.rhyme.main_group
+        elif result.ci and result.ci.rhyme_groups:
+            names = [g.main_group for g in result.ci.rhyme_groups if g.main_group]
+            group = "／".join(dict.fromkeys(names))
+
+        print(
+            f"| `{path.name}` | {genre} | {verdict} | {group or '—'} "
+            f"| {result.score * 100:.1f}% |"
+        )
+    return 0
+
+
 # ---------------------------------------------------------------- 主函数
 
 
@@ -148,11 +193,13 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "示例：\n"
-            "  python main.py 示例/静夜思.txt\n"
+            "  python main.py 示例/01-五言绝句-登鹳雀楼.txt\n"
             "  python main.py -t \"国破山河在，城春草木深。感时花溅泪，恨别鸟惊心。\"\n"
             "  python main.py -t \"《浣溪沙》一曲新词酒一杯，去年天气旧亭台。\"\n"
             "  python main.py --verify-kb\n"
             "  python main.py --list-cipai\n"
+            "  python main.py --expect 示例       扫描目录并打印结论表（Markdown）\n"
+            "  python main.py --serve             启动网页界面\n"
         ),
     )
     p.add_argument("path", nargs="?", help="诗词文本文件路径（UTF-8）")
@@ -172,6 +219,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--brief", action="store_true", help="精简报告（不展开对仗细节）")
     p.add_argument("--verify-kb", action="store_true", help="自检知识库数据")
     p.add_argument("--list-cipai", action="store_true", help="列出知识库中的词牌")
+    p.add_argument(
+        "--expect", nargs="?", const="示例", metavar="目录",
+        help="扫描目录并打印各示例的结论表（Markdown），用于同步文档",
+    )
     p.add_argument("--serve", action="store_true", help="启动本地网页服务（浏览器界面）")
     p.add_argument("--port", type=int, default=8765, help="网页服务端口（默认 8765）")
     p.add_argument("--no-browser", action="store_true", help="启动服务时不自动打开浏览器")
@@ -198,16 +249,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         return verify_kb(kb)
     if args.list_cipai:
         return list_cipai(kb)
+    if args.expect:
+        return expect_table(kb, args.expect)
 
     text = _read_input(args)
     result = analyze(text, kb=kb, book=args.book, shape=args.shape)
 
     if args.json:
         print(result.json())
-        return 0 if result.ok or result.kind == "未知" else 1
+    else:
+        color = not args.no_color and sys.stdout.isatty()
+        print(result.text(color=color, verbose=not args.brief))
 
-    color = not args.no_color and sys.stdout.isatty()
-    print(result.text(color=color, verbose=not args.brief))
+    # 退出码：0 成功（合律/合谱/变体/无法识别），1 存在出律，2 知识库错误。
+    # 「无法识别体裁」不算错误——程序正常跑完了，只是判不出体制，
+    # 不该让调用方的脚本因为它而失败。--json 与文本模式必须给出相同的码。
+    if result.kind == "未知":
+        return 0
     return 0 if result.ok else 1
 
 

@@ -113,6 +113,11 @@ class CiResult:
         return all(c.size_ok for c in self.clauses)
 
     @property
+    def coverage(self) -> Tuple[int, int]:
+        """(已判定字数, 总字数)。符合度只在这些字上成立。"""
+        return pt.coverage_stats([c.result for c in self.clauses if c.result])
+
+    @property
     def rhyme_ok(self) -> bool:
         return all(g.ok for g in self.rhyme_groups)
 

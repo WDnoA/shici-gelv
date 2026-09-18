@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import unicodedata
 from dataclasses import is_dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from . import ci as ci_mod
 from . import checker as poem_mod
@@ -130,6 +130,22 @@ def to_json(result: Any, kb: Optional[KnowledgeBase] = None) -> str:
     return json.dumps(_plain(result, kb), ensure_ascii=False, indent=2)
 
 
+def _coverage_note(known: int, total: int) -> str:
+    """「已判定 x/y 字」——未判定的字不拉低符合度，但必须让读者看见。"""
+    if not total or known == total:
+        return ""
+    return f"（已判定 {known}/{total} 字）"
+
+
+def _coverage_warning(known: int, total: int) -> Optional[str]:
+    if not total or known == total:
+        return None
+    return (
+        f"  ⚠ 有 {total - known} 字未能判定（韵书未收录，或整句字数与定式不符），"
+        f"未计入符合度；上述结论仅就已判定的 {known} 字而言"
+    )
+
+
 def _plain(obj: Any, kb: Optional[KnowledgeBase] = None) -> Any:
     """递归地把 dataclass / set 等转成可 JSON 序列化的结构。"""
     if is_dataclass(obj) and not isinstance(obj, type):
@@ -168,7 +184,11 @@ def render_poem(res: poem_mod.PoemResult, color: bool = False, verbose: bool = T
     lines.append(
         f"  结论：{_c(res.verdict, v_color, color)}   "
         f"平仄符合度 {_c(f'{res.score:.1%}', C.BOLD, color)}"
+        f"{_c(_coverage_note(*res.coverage), C.GRAY, color)}"
     )
+    warn = _coverage_warning(*res.coverage)
+    if warn:
+        lines.append(_c(warn, C.YELLOW, color))
     lines.append("")
 
     # ---- 平仄谱对照
@@ -299,7 +319,11 @@ def render_ci(res: ci_mod.CiResult, color: bool = False, verbose: bool = True) -
     lines.append(
         f"  结论：{_c(res.verdict, v_color, color)}   "
         f"平仄符合度 {_c(f'{res.score:.1%}', C.BOLD, color)}"
+        f"{_c(_coverage_note(*res.coverage), C.GRAY, color)}"
     )
+    warn = _coverage_warning(*res.coverage)
+    if warn:
+        lines.append(_c(warn, C.YELLOW, color))
     lines.append("")
 
     lines.append(section("逐 句 对 照", color))

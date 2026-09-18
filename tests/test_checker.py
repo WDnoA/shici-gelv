@@ -17,8 +17,6 @@ for _p in (str(ROOT), str(ROOT / "tests")):
         sys.path.insert(0, _p)
 
 from poetry_checker import KnowledgeBase, analyze  # noqa: E402
-from poetry_checker import ci as ci_mod  # noqa: E402
-from poetry_checker import checker as poem_mod  # noqa: E402
 from poetry_checker import patterns as pt  # noqa: E402
 from poetry_checker.knowledge import CILIN, PINGSHUI, 平, 仄  # noqa: E402
 import fixtures as fx  # noqa: E402
@@ -541,6 +539,114 @@ class TestAPI(unittest.TestCase):
         self.assertIn("ok", d)
         self.assertIn("score", d)
         self.assertEqual(d["kind"], "近体诗")
+
+
+class Test命令行(unittest.TestCase):
+    """命令行入口与退出码。"""
+
+    def _run(self, argv):
+        import contextlib
+        import io
+
+        from poetry_checker.cli import main
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = main(argv)
+        return code, buf.getvalue()
+
+    def test_合律返回0(self):
+        code, _ = self._run(["-t", "白日依山尽，黄河入海流。欲穷千里目，更上一层楼。"])
+        self.assertEqual(code, 0)
+
+    def test_出律返回1(self):
+        code, _ = self._run(["-t", 读("06-有毛病的诗-待改.txt")])
+        self.assertEqual(code, 1)
+
+    def test_无法识别仍返回0(self):
+        """识别不出体裁不是错误，不该让调用方的脚本失败。"""
+        code, _ = self._run(["-t", "这是一句随便的话。"])
+        self.assertEqual(code, 0)
+
+    def test_verify_kb返回0(self):
+        code, out = self._run(["--verify-kb"])
+        self.assertEqual(code, 0)
+        self.assertIn("知识库自检通过", out)
+
+    def test_list_cipai(self):
+        code, out = self._run(["--list-cipai"])
+        self.assertEqual(code, 0)
+        self.assertIn("浣溪沙", out)
+
+    def test_expect输出markdown表(self):
+        """--expect 是防文档漂移用的：示例改了，用它一键重算结论表。"""
+        code, out = self._run(["--expect", str(示例)])
+        self.assertEqual(code, 0)
+        self.assertIn("| 文件 | 体裁 | 结论 | 韵部 | 平仄符合度 |", out)
+        # 每个示例都该出现一行
+        for name in sorted(p.name for p in 示例.glob("*.txt")):
+            self.assertIn(f"`{name}`", out)
+
+    def test_expect目录不存在返回2(self):
+        import tempfile
+
+        code, _ = self._run(["--expect", "不存在的目录"])
+        self.assertEqual(code, 2)
+
+    def test_expect空目录返回2(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            code, _ = self._run(["--expect", tmp])
+        self.assertEqual(code, 2)
+
+
+class Test覆盖率(unittest.TestCase):
+    """符合度不能掩盖「有些字根本没查过」。
+
+    这是真实投稿《中秋寄知音》暴露的缺陷：句 6「幽怀千缕各沉吟」里
+    「各」「沉」「缕」三字当时都未收录，报告却照样给出「合律 100%」——
+    因为 ``score_clauses`` 把未收录字排除在分母之外，
+    分母变小，分数反而更高。现在符合度必须连带覆盖率一起给出。
+    """
+
+    def setUp(self):
+        self.kb = KnowledgeBase.load()
+        self.book = self.kb.book(PINGSHUI)
+        # 自适应当前知识库：找一个肯定没收录的生僻字
+        self.rare = next(c for c in "龘靐齉爩麤" if not self.book.groups(c))
+
+    def test_全部收录时不显示告警(self):
+        r = analyze("白日依山尽，黄河入海流。欲穷千里目，更上一层楼。", kb=self.kb)
+        known, total = r.coverage
+        self.assertEqual(known, total)
+        self.assertNotIn("未能判定", r.text(color=False))
+
+    def test_未收录字计入分母并告警(self):
+        r = analyze(f"白日依山尽，黄河入海流。欲穷千里目，更上{self.rare}层楼", kb=self.kb)
+        known, total = r.coverage
+        self.assertEqual(total, 20)
+        self.assertEqual(known, 19, "生僻字不该被算作已判定")
+        text = r.text(color=False)
+        self.assertIn("已判定 19/20 字", text)
+        self.assertIn("未能判定", text)
+
+    def test_词也给出覆盖率(self):
+        r = analyze("《浣溪沙》一曲新词酒一杯，去年天气旧亭台。", kb=self.kb)
+        known, total = r.coverage
+        self.assertGreater(known, 0)
+        self.assertLessEqual(known, total)
+
+    def test_json导出覆盖率(self):
+        r = analyze("白日依山尽，黄河入海流。欲穷千里目，更上一层楼。", kb=self.kb)
+        d = json.loads(r.json())
+        self.assertIn("coverage", d)
+        self.assertEqual(d["coverage"]["known"], d["coverage"]["total"])
+
+    def test_补录后的常用字均可判定(self):
+        """「各、沉、缕」是投稿暴露的漏收字，已补进平水韵。"""
+        for ch in "各沉缕":
+            self.assertTrue(self.book.groups(ch), f"「{ch}」仍未被韵书收录")
 
 
 class TestHTTPServer(unittest.TestCase):

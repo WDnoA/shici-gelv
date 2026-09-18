@@ -17,7 +17,7 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Callable, Optional, Tuple, Type
+from typing import Optional, Tuple, Type
 from urllib.parse import unquote, urlparse
 
 from . import __version__

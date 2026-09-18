@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable, List, Optional, Sequence, Set
+from typing import Iterable, List, Optional, Sequence
 
 from .knowledge import KnowledgeBase, PINGSHUI, 平, 仄
 

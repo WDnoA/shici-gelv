@@ -281,6 +281,24 @@
       add('句数', obj.clauses.length);
       if (obj.shape_note) add('说明', obj.shape_note);
     }
+
+    // 符合度只统计韵书查得到的字：查不到的字既不进分子也不进分母，
+    // 所以一首诗可能显示 100%，却有一半的字根本没查过。把覆盖率摆出来。
+    const cov = result.coverage || {};
+    const total = cov.total || 0;
+    const known = cov.known || 0;
+    if (total) {
+      const miss = total - known;
+      const row = el('div', 'info-item');
+      row.style.gridColumn = '1 / -1';
+      row.appendChild(el('span', 'k', '已判定字数'));
+      row.appendChild(
+        el('span', 'v' + (miss ? ' cov-warn' : ''), miss
+          ? `${known} / ${total}（另有 ${miss} 字韵书未收录或句式不符，未计入符合度）`
+          : `${known} / ${total}（全部字均已判定）`)
+      );
+      grid.appendChild(row);
+    }
     return grid;
   }
 

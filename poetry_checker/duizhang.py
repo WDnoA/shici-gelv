@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Set, Tuple
+from typing import List, Optional, Set
 
 from .knowledge import KnowledgeBase, 平, 仄
 

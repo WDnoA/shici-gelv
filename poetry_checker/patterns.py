@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import List, Optional, Sequence, Set, Tuple
 
 from .knowledge import KnowledgeBase, 平, 仄
 
@@ -299,3 +299,20 @@ def score_clauses(clauses: Sequence[ClauseResult]) -> float:
             if c.status in (状态_合律, 状态_从宽, 状态_借读):
                 ok += 1
     return ok / total if total else 0.0
+
+
+def coverage_stats(clauses: Sequence[ClauseResult]) -> Tuple[int, int]:
+    """返回 (已判定字数, 总字数)。
+
+    ``score_clauses`` 把未收录字排除在分母之外，这本身是对的——
+    但正因如此，一首诗即使有一半的字没查过，符合度也能显示成 100%。
+    所以符合度必须和覆盖率一起给出，否则读者会以为整首都查了。
+    """
+    total = 0
+    known = 0
+    for cl in clauses:
+        for c in cl.chars:
+            total += 1
+            if c.status not in 状态_不计分:
+                known += 1
+    return known, total
