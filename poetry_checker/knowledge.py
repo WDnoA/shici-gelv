@@ -134,6 +134,10 @@ class KnowledgeBase:
         # 词林正韵的半韵通押关系
         self.cilin_compat: Dict[str, Set[str]] = {}
 
+        # 实际读过的数据文件。由 ``_read_json`` 自动记录，
+        # 这样将来新增数据文件时不必回来维护一份文件清单。
+        self.loaded_files: Set[Path] = set()
+
     # ------------------------------------------------------------ 加载
 
     @classmethod
@@ -148,10 +152,27 @@ class KnowledgeBase:
         kb._load_duizhang()
         return kb
 
+    def fingerprint(self) -> Tuple[Tuple[str, int, int], ...]:
+        """数据文件的「指纹」：每个文件的 (路径, 字节数, 修改时间)。
+
+        拿来判断磁盘上的知识库是否被改过。补录一个字的正确流程是
+        「改 JSON → 重新加载」，长驻服务若不重新加载就会一直拿旧数据回答，
+        使用者会以为补录失败了。故有此指纹，见 ``api.CheckerAPI._sync_kb``。
+        """
+        out: List[Tuple[str, int, int]] = []
+        for path in sorted(self.loaded_files):
+            try:
+                st = path.stat()
+                out.append((str(path), st.st_size, st.st_mtime_ns))
+            except OSError:
+                out.append((str(path), -1, -1))
+        return tuple(out)
+
     # ---- 内部工具
 
     def _read_json(self, *parts: str) -> dict:
         path = self.root.joinpath(*parts)
+        self.loaded_files.add(path)
         if not path.exists():
             raise KnowledgeError(f"缺少知识库文件：{path}")
         try:

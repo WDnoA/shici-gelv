@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -24,6 +26,7 @@ from fixtures import 固件  # noqa: E402
 
 KB = KnowledgeBase.load()
 示例 = ROOT / "示例"
+知识库 = ROOT / "知识库"
 
 
 def 读(name: str) -> str:
@@ -644,9 +647,111 @@ class Test覆盖率(unittest.TestCase):
         self.assertEqual(d["coverage"]["known"], d["coverage"]["total"])
 
     def test_补录后的常用字均可判定(self):
-        """「各、沉、缕」是投稿暴露的漏收字，已补进平水韵。"""
-        for ch in "各沉缕":
+        """「各、沉、缕、冷」都是真实投稿暴露的漏收字，已补进平水韵。"""
+        for ch in "各沉缕冷":
             self.assertTrue(self.book.groups(ch), f"「{ch}」仍未被韵书收录")
+
+    def test_未收录提示只发一次(self):
+        """「韵书未收录」只能由后端发一条。
+
+        前端 ``web/app.js`` 曾经自己又硬编码了一条，于是同一条提示
+        在页面上出现两次，且前端那份的路径是残缺的
+        （「可补录到 知识库/韵书/。」——缺文件名）。那份硬编码已删除，
+        这里守住后端侧不重复、且路径完整。
+        """
+        r = analyze(f"白日依山尽，黄河入海流。欲穷千里目，更上{self.rare}层楼", kb=self.kb)
+        hits = [i for i in r.poem.issues if i.title == "韵书未收录"]
+        self.assertEqual(len(hits), 1, "同一条未收录提示只能出现一次")
+        self.assertIn("知识库/韵书/平水韵.json", hits[0].detail, "补录路径必须写全")
+
+
+class Test知识库热重载(unittest.TestCase):
+    """改完 JSON 不用重启服务。
+
+    本项目的核心用法是「碰到未收录字 → 补录进 知识库/韵书/平水韵.json」。
+    长驻服务若把知识库锁死在进程内存里，补录完页面照旧报「未收录」，
+    使用者会以为补录失败——真实发生过（补了「冷」之后页面仍是旧结果）。
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name) / "知识库"
+        shutil.copytree(知识库, self.root)
+        self.book_path = self.root / "韵书" / "平水韵.json"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _新服务(self):
+        from poetry_checker.api import CheckerAPI
+
+        return CheckerAPI(KnowledgeBase.load(self.root))
+
+    def _生僻字(self):
+        book = KnowledgeBase.load(self.root).book(PINGSHUI)
+        return next(c for c in "龘靐齉爩麤" if not book.groups(c))
+
+    def _查(self, server, text):
+        return json.loads(server.check({"text": text}).to_json())["result"]
+
+    def test_补录后无需重启即可生效(self):
+        rare = self._生僻字()
+        server = self._新服务()
+        poem = f"白日依山尽，黄河入海流。欲穷千里目，更上{rare}层楼"
+
+        self.assertEqual(self._查(server, poem)["coverage"]["known"], 19)
+        self.assertEqual(server.reload_count, 0)
+
+        # 直接改磁盘：把生僻字挂进「下平声十一尤」
+        raw = self.book_path.read_text(encoding="utf-8")
+        self.book_path.write_text(
+            raw.replace('"十一尤": "', '"十一尤": "' + rare, 1), encoding="utf-8"
+        )
+
+        after = self._查(server, poem)
+        self.assertEqual(after["coverage"]["known"], 20, "改完 JSON 应自动重载")
+        self.assertEqual(server.reload_count, 1)
+
+    def test_没改动时不重复加载(self):
+        server = self._新服务()
+        for _ in range(3):
+            self._查(server, "白日依山尽，黄河入海流。欲穷千里目，更上一层楼。")
+        self.assertEqual(server.reload_count, 0, "文件没变就不该反复重载")
+
+    def test_半截JSON不打挂服务(self):
+        """编辑到一半是常态，此时必须沿用旧数据，绝不能崩。"""
+        server = self._新服务()
+        poem = "白日依山尽，黄河入海流。欲穷千里目，更上一层楼。"
+        self.assertTrue(self._查(server, poem)["ok"] is not None)
+
+        self.book_path.write_text('{"韵部": {"上平声": {"一东": "东', encoding="utf-8")
+
+        after = self._查(server, poem)
+        self.assertEqual(after["kind"], "近体诗", "半截 JSON 时应沿用旧知识库")
+        self.assertEqual(server.reload_count, 0)
+
+        # 补全后应能恢复重载
+        shutil.copy(知识库 / "韵书" / "平水韵.json", self.book_path)
+        self.assertEqual(self._查(server, poem)["kind"], "近体诗")
+        self.assertEqual(server.reload_count, 1)
+
+    def test_可关闭自动重载(self):
+        from poetry_checker.api import CheckerAPI
+
+        server = CheckerAPI(KnowledgeBase.load(self.root), auto_reload=False)
+        raw = self.book_path.read_text(encoding="utf-8")
+        self.book_path.write_text(raw.replace("二十六寝", "二十六寝"), encoding="utf-8")
+        self._查(server, "白日依山尽，黄河入海流。")
+        self.assertEqual(server.reload_count, 0)
+
+    def test_指纹随文件变化(self):
+        kb = KnowledgeBase.load(self.root)
+        before = kb.fingerprint()
+        self.assertTrue(before, "指纹不该为空")
+
+        raw = self.book_path.read_text(encoding="utf-8")
+        self.book_path.write_text(raw + "\n", encoding="utf-8")
+        self.assertNotEqual(KnowledgeBase.load(self.root).fingerprint(), before)
 
 
 class TestHTTPServer(unittest.TestCase):

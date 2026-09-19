@@ -49,9 +49,48 @@ class Response:
 class CheckerAPI:
     """把知识库与校验器包成一组 HTTP 友好的方法。"""
 
-    def __init__(self, kb: Optional[KnowledgeBase] = None) -> None:
-        # 知识库加载有一定开销，进程内**只加载一次**，所有请求共享。
+    def __init__(
+        self, kb: Optional[KnowledgeBase] = None, auto_reload: bool = True
+    ) -> None:
+        # 知识库加载有一定开销，进程内只加载一份，所有请求共享。
+        # 但**不是**一劳永逸：磁盘上的 JSON 被改过就要换掉它，见 _sync_kb。
         self.kb = kb or KnowledgeBase.load()
+        self.auto_reload = auto_reload
+        self._fingerprint = self.kb.fingerprint()
+        self.reload_count = 0
+
+    # ------------------------------------------------------------ 知识库热重载
+
+    def _sync_kb(self) -> None:
+        """磁盘上的知识库被改过就重新加载。
+
+        本项目的核心用法就是「碰到未收录字 → 查证 → 补录进 JSON」。
+        如果改完必须重启服务才生效，使用者会以为补录没成功——
+        这真实发生过：把「冷」补进平水韵后，页面照旧报「冷」未收录，
+        因为服务进程里还是几小时前加载的旧数据。
+
+        每次请求查一遍文件指纹（几个 stat 调用，开销可忽略），
+        变了就整体重载。重载失败（例如正编辑到一半、JSON 半截）时
+        保留旧数据，下次请求再试，绝不因为一个语法错误把服务打挂。
+        """
+        if not self.auto_reload:
+            return
+        try:
+            fingerprint = self.kb.fingerprint()
+        except Exception:  # pragma: no cover
+            return
+        if fingerprint == self._fingerprint:
+            return
+
+        try:
+            fresh = KnowledgeBase.load(self.kb.root)
+        except (KnowledgeError, OSError):
+            # JSON 正处于「改到一半」的状态是常态，静默等待下次请求
+            return
+
+        self.kb = fresh
+        self._fingerprint = fresh.fingerprint()
+        self.reload_count += 1
 
     # ------------------------------------------------------------ 路由
 
@@ -87,6 +126,7 @@ class CheckerAPI:
 
     def meta(self) -> Response:
         """服务与知识库概况，供前端初始化。"""
+        self._sync_kb()
         ping = self.kb.book(PINGSHUI)
         cilin = self.kb.book(CILIN)
         try:
@@ -112,6 +152,9 @@ class CheckerAPI:
                 "cipai_count": len(self.kb.cipai),
                 "categories": len(self.kb.categories),
                 "max_text_chars": MAX_TEXT_CHARS,
+                # 改知识库后是否已经自动重新加载过；排查「补录了却不生效」用
+                "kb_files": len(self.kb.loaded_files),
+                "kb_reload_count": self.reload_count,
                 # 便于排查「页面 404」类故障：服务到底在哪儿、前端目录还在不在
                 "project_dir": str(self.kb.root.parent),
                 "web_dir": str(self.kb.root.parent / "web"),
@@ -121,6 +164,7 @@ class CheckerAPI:
 
     def cipai(self) -> Response:
         """已收录的词牌一览。"""
+        self._sync_kb()
         items: List[Dict[str, Any]] = []
         for name, spec in sorted(
             self.kb.cipai.items(), key=lambda kv: kv[1].get("字数", 0)
@@ -139,6 +183,9 @@ class CheckerAPI:
 
     def check(self, body: dict) -> Response:
         """校验一首诗词。"""
+        # 每个对外接口各自同步，而不是只挂在 handle() 上——
+        # 这样直接调 check()/meta() 的调用方（测试、库用户）也能拿到最新知识库。
+        self._sync_kb()
         if not isinstance(body, dict):
             raise ApiError(400, "请求体必须是 JSON 对象")
 

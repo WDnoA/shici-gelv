@@ -641,19 +641,9 @@
       list.appendChild(item);
     });
 
-    // 未收录字
-    const { unknown } = collectProblems(obj, obj.kind === '词');
-    if (unknown.length) {
-      const chars = [...new Set(unknown.map(([, c]) => c.char))].join('');
-      const item = el('div', 'item level-提示');
-      item.appendChild(el('span', 'ico', '·'));
-      const b = el('div');
-      b.appendChild(el('span', 'title', '韵书未收录'));
-      b.appendChild(el('span', 'body',
-        `以下字不在韵书数据中，未参与平仄判定：${chars}。可补录到 知识库/韵书/。`));
-      item.appendChild(b);
-      list.appendChild(item);
-    }
+    // 注：「韵书未收录」由后端（checker.py / ci.py）作为 issue 下发，上面已经渲染。
+    // 前端曾经在这里又硬编码了一模一样的提示，导致同一条提示出现两次，
+    // 而且前端那份的路径是残缺的（「可补录到 知识库/韵书/。」缺文件名）。已删除。
 
     if (!list.children.length) {
       list.appendChild(el('div', 'empty-line', '无。'));
