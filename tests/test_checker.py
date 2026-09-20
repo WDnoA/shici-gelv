@@ -90,6 +90,20 @@ class TestKnowledgeBase(unittest.TestCase):
         self.assertEqual(KB.cipai_real_name("乌夜啼"), "相见欢")
         self.assertIsNotNone(KB.cipai_spec("浣溪沙"))
 
+    def test_对仗词类用字均被韵书收录(self):
+        """回归：韵书漏收常用字会让报告误报「韵书未收录」。
+
+        历史故障：旧韵书只收 3485 字，「顾、女、父、爱、皆、惟、掌、暑、暮…」
+        等极常用字竟都不在内；而《对仗/词类分类.json》的 930 字里有 134 字查不到——
+        同一项目内两份数据自相矛盾。用户投稿「镜鸾顾影怜孤舞」即因此被误报。
+        韵书已重建至约 8300 字，此断言锁住「对仗词库 ⊆ 韵书」这一不变量。
+        """
+        允许未收 = {"垧"}   # 现代字（「晌」的异体），平水韵本无，按「宁可不判」留白
+        缺口 = sorted(
+            c for c in KB.char_category if not KB.groups(c) and c not in 允许未收
+        )
+        self.assertEqual(缺口, [], f"对仗词类中有字未被韵书收录：{''.join(缺口)}")
+
 
 # ---------------------------------------------------------------- 诗谱
 

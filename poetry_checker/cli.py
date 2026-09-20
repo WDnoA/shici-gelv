@@ -110,7 +110,20 @@ def verify_kb(kb: KnowledgeBase) -> int:
             )
     print(f"  ✔ 词牌谱长校验完毕（{len(kb.cipai)} 个）")
 
-    # 3. 中华新韵可用性
+    # 3. 覆盖度交叉校验：对仗词类所收的常用字，应当都能在韵书中查到。
+    #    这一条把「韵书漏收常用字」这类隐性缺口变成可见的提示——历史上正是
+    #    「顾」等常用字缺失，导致报告误报「韵书未收录」，而结构自检察觉不到。
+    ps = kb.book(PINGSHUI)
+    缺口 = sorted(c for c in kb.char_category if not ps.groups(c))
+    if 缺口:
+        print(
+            f"  ⚠ 对仗词类中有 {len(缺口)} 字未被《平水韵》收录：{''.join(缺口)}"
+        )
+        print("    （不影响判定，但说明韵书覆盖存在缺口，建议查证后补录）")
+    else:
+        print("  ✔ 对仗词类用字已全部被《平水韵》覆盖")
+
+    # 4. 中华新韵可用性
     if kb.xinyun_available:
         print("  ✔ pypinyin 已安装，可使用「中华新韵」")
     else:
