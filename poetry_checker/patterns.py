@@ -32,10 +32,11 @@ def flip(tone: str) -> str:
 
 
 def entry_of(kb: KnowledgeBase, kind: str, pu: str) -> dict:
-    for e in kb.jinti["基本句式"][kind]:
-        if e["谱"] == pu:
-            return e
-    raise KeyError(f"{kind} 中没有句式 {pu}")
+    """按谱反查句式定义。走知识库建好的索引，不做线性扫描。"""
+    try:
+        return kb.pattern_by_pu[kind][pu]
+    except KeyError:
+        raise KeyError(f"{kind} 中没有句式 {pu}") from None
 
 
 def dui_ju(kb: KnowledgeBase, kind: str, prev: str) -> str:
@@ -173,14 +174,13 @@ def compare_clause(
     result.lenient = lenient
 
     for i, (ch, exp) in enumerate(zip(text, pattern)):
+        tones = kb.tones(ch, book)         # 查一次即可，下面两条分支共用
         if exp == "中":                    # 词谱的不论位
             result.chars.append(
-                CharResult(i, ch, exp, kb.tones(ch, book), 状态_从宽, _pick(kb, ch, book, None))
+                CharResult(i, ch, exp, tones, 状态_从宽, _pick(tones))
             )
             continue
-        tones = kb.tones(ch, book)
-        res = _match(i, ch, exp, tones, lenient)
-        result.chars.append(res)
+        result.chars.append(_match(i, ch, exp, tones, lenient))
 
     # ---- 整句层面的特殊句式
     _apply_special(kb, result)
@@ -202,8 +202,8 @@ def _match(i: int, ch: str, exp: str, tones: Set[str], lenient: Set[int]) -> Cha
     return CharResult(i, ch, exp, tones, 状态_出律, next(iter(tones)))
 
 
-def _pick(kb: KnowledgeBase, ch: str, book: str, prefer: Optional[str]) -> Optional[str]:
-    tones = kb.tones(ch, book)
+def _pick(tones: Set[str], prefer: Optional[str] = None) -> Optional[str]:
+    """在已有的平仄集合里挑一个「代表读法」，供报告显示。"""
     if not tones:
         return None
     if prefer in tones:

@@ -223,11 +223,10 @@ def render_poem(res: poem_mod.PoemResult, color: bool = False, verbose: bool = T
         for cidx, ch in viol:
             exp = ch.expected
             act = "".join(sorted(ch.tones)) or "未知"
-            hint = "（可从宽位置，但造成整句问题，见下）" if not ch.tones else ""
             lines.append(
                 f"  {_c('✘', C.RED, color)} 第 {cidx + 1} 句第 {ch.index + 1} 字 "
                 f"「{ch.char}」：定式要求 {_c(exp, tone_color(exp), color)}，"
-                f"该字读作 {_c(act, C.YELLOW, color)} {hint}"
+                f"该字读作 {_c(act, C.YELLOW, color)}"
             )
         for cidx, iss in serious:
             lines.append(

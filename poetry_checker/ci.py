@@ -50,6 +50,8 @@ class CiClause:
 @dataclass
 class RhymeGroup:
     group_id: int
+    # 组内主平仄（取首个韵位的谱尾），仅供报告显示。
+    # **核对时不用它** —— 逐位看各自的谱尾，见 _required_tone()。
     expected_tone: str = "中"
     feet: List[Tuple[int, str]] = field(default_factory=list)   # (句序 0-based, 汉字)
     main_group: Optional[str] = None
@@ -244,22 +246,45 @@ def _segment(parsed: ParsedPoem, grid: Sequence[dict], res: CiResult) -> List[st
 # ---------------------------------------------------------------- 押韵
 
 
+def _required_tone(res: CiResult, seat: int) -> str:
+    """该韵位按词谱应押的平仄（谱尾为「中」时表示不限）。"""
+    if not (0 <= seat < len(res.clauses)):
+        return "中"
+    pattern = res.clauses[seat].pattern
+    tail = pattern[-1:] if pattern else ""
+    return tail if tail in (平, 仄) else "中"
+
+
+def rhyme_seat_groups(grid: Sequence[dict]) -> List[List[int]]:
+    """把词谱里的韵位归组，返回每组的句序（0-based）。
+
+    归组规则只有一条：**韵标记 3（换韵）起新组**，其余标记延续当前组。
+    抽成独立函数是为了让「校验」与「自检」共用同一套规则——自检要核对
+    「同一组内各韵位该押的平仄是否自洽」，用两处实现迟早会分家。
+    """
+    groups: List[List[int]] = []
+    for i, g in enumerate(grid):
+        if int(g.get("韵", 0)) == 0:
+            continue
+        if int(g.get("韵", 0)) == 3 or not groups:
+            groups.append([])
+        groups[-1].append(i)
+    return groups
+
+
 def _analyze_rhyme(kb: KnowledgeBase, res: CiResult) -> List[RhymeGroup]:
     # ---- 1. 归组：韵标记 3 起新组，其余延续当前组
-    group_id = 0
-    started = False
     groups: Dict[int, RhymeGroup] = {}
-    for cl in res.clauses:
-        if not cl.is_rhyme:
-            continue
-        if not started or cl.rhyme_flag == 3:
-            group_id += 1
-            started = True
-            expected = cl.pattern[-1] if cl.pattern else "中"
-            groups[group_id] = RhymeGroup(group_id=group_id, expected_tone=expected)
-        cl.group_id = group_id
-        if cl.text:
-            groups[group_id].feet.append((cl.index, cl.text[-1]))
+    for group_id, seats in enumerate(
+        rhyme_seat_groups(res.spec.get("格律", [])), start=1
+    ):
+        group = RhymeGroup(group_id=group_id, expected_tone=_required_tone(res, seats[0]))
+        groups[group_id] = group
+        for seat in seats:
+            cl = res.clauses[seat]
+            cl.group_id = group_id
+            if cl.text:
+                group.feet.append((seat, cl.text[-1]))
 
     # ---- 2. 逐组检查韵部与韵脚平仄
     for gid, group in sorted(groups.items()):
@@ -291,12 +316,32 @@ def _analyze_rhyme(kb: KnowledgeBase, res: CiResult) -> List[RhymeGroup]:
                     group.ok = False
                     group.notes.append(f"「{ch}」出韵（不在「{group.main_group}」）")
 
-        if group.expected_tone in (平, 仄):
-            label = "平" if group.expected_tone == 平 else "仄"
-            bad = [ch for _i, ch in group.feet if group.expected_tone not in kb.tones(ch, CILIN)]
-            if bad:
-                group.ok = False
-                group.notes.append(f"该韵位应押{label}声，以下字不合：{'、'.join(bad)}")
+        # ---- 韵脚平仄：**逐位按该位自己的谱尾**判断该押平还是仄。
+        #
+        # 早先这里用「全组一个平仄」（取组内首个韵位的谱尾）来核对，于是
+        # 《西江月》的叶韵位（韵标记 4，同部仄韵）必被判错：辛弃疾
+        # 「听取蛙声一片」「路转溪桥忽见」会被报成「该韵位应押平声」，
+        # 传世名篇倒成了出律，报告还建议把「片」「见」改成平声字。
+        #
+        # 逐位判断既修掉这个误报，又不改变其它词牌的结论——因为除叶韵位外，
+        # 同一韵组内各韵位的谱尾本就一致（可用 --verify-kb 把关）。
+        bad: List[str] = []
+        for i, ch in group.feet:
+            need = _required_tone(res, i)
+            if need in (平, 仄) and need not in kb.tones(ch, CILIN):
+                bad.append(f"「{ch}」应押{need}声")
+        if bad:
+            group.ok = False
+            group.notes.append("以下韵脚的平仄与词谱不合：" + "、".join(bad))
+
+        # 叶韵位（韵标记 4）：同部平仄通押，说明一句，免得读者以为它与平韵同调
+        ye = sorted(i for i, _ch in group.feet if res.clauses[i].rhyme_flag == 4)
+        if ye:
+            seats = "、".join(f"第{i + 1}句" for i in ye)
+            group.notes.append(
+                f"{seats}为「同部仄韵」（叶韵）：与本组平韵同属「{group.main_group}」，"
+                "平仄通押，故按仄声核对（不要求与平韵同调）"
+            )
 
     # ---- 3. 叠韵检查（韵标记 2）
     prev_char: Optional[str] = None
@@ -350,20 +395,19 @@ def _global_issues(kb: KnowledgeBase, res: CiResult) -> List[pt.Issue]:
                 gs = kb.groups(ch, CILIN)
                 if not gs:
                     continue  # 韵书未收录，不臆测
+                # 该位要平还是要仄，一律看它自己的谱尾。叶韵位（同部仄韵）
+                # 由此得到「需仄声」，给的候选字才是对的——早先按组取平仄，
+                # 会建议作者把《西江月》的「片」换成平声字。
+                need = _required_tone(res, _i)
                 wrong_group = g.main_group not in gs
-                wrong_tone = (
-                    g.expected_tone in (平, 仄)
-                    and g.expected_tone not in kb.tones(ch, CILIN)
-                )
+                wrong_tone = need in (平, 仄) and need not in kb.tones(ch, CILIN)
                 if wrong_group or wrong_tone:
                     issues.append(
                         pt.Issue(
                             "建议",
                             "押韵换字建议",
                             f"韵组 {g.group_id}："
-                            + suggest.rhyme_fix(
-                                kb, ch, g.main_group, g.expected_tone, used, CILIN
-                            ),
+                            + suggest.rhyme_fix(kb, ch, g.main_group, need, used, CILIN),
                         )
                     )
 

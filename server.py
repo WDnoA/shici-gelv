@@ -9,12 +9,13 @@
 
 import argparse
 import sys
+from typing import List, Optional
 
 from poetry_checker import __version__
 from poetry_checker.server import serve
 
 
-def main(argv=None) -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(
         prog="诗词格律校验器 · 网页服务",
         description="在本机启动校验器的网页界面。",

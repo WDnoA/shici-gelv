@@ -76,11 +76,15 @@ def parse(text: str, kb=None) -> ParsedPoem:
         return result
 
     # ---- 1. 找出标题行
+    # 只认**首个非空行**（空行与 # 注释行已在上面滤掉）。
+    #
+    # 早先版本会扫描前 3 行，遇到「每句一行、完全不打标点」的律诗就会出错：
+    # 第 0 行因「去掉后剩 7 行（奇数）」不算标题，轮到第 1 行时剩下 6 行恰好
+    # 是「等长、偶数」的合法体制，于是第 1 行被认作标题，**第 0 行被静默丢弃**
+    # —— 七律只剩 42 字，而 README 明确承诺这种输入能自动分句。
     title_idx = -1
-    for i, ln in enumerate(raw_lines[:3]):
-        if _looks_like_title(ln, kb, raw_lines[i + 1 :]):
-            title_idx = i
-            break
+    if _looks_like_title(raw_lines[0], kb, raw_lines[1:]):
+        title_idx = 0
 
     if title_idx >= 0:
         result.title = raw_lines[title_idx].strip()

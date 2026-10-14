@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional, Sequence
 
-from .knowledge import KnowledgeBase, PINGSHUI, 平, 仄
+from .knowledge import CILIN, KnowledgeBase, PINGSHUI, 平, 仄
 
 # 建议里最多列出多少个候选字
 DEFAULT_LIMIT = 60
@@ -46,19 +46,24 @@ def candidates(
     1. **诗词常用字优先** —— 以对仗词类表所收的字为「常见的诗词用字」的近似；
        韵书里同音的生僻字（如「童」旁的僮、瞳、潼）就不会挤在前面。
     2. 其余字按韵书原本的排列次序。
+
+    字表与平仄一律走 ``kb`` 的统一接口（``kb.members`` / ``kb.tones``），
+    不直接摸 ``RhymeBook``。因为《中华新韵》没有现成字表，平仄也是现算的，
+    直接取 ``RhymeBook`` 的话只会得到一个空表——曾经就这样悄悄失效过：
+    用新韵校验时，换字建议永远回一句「该韵部中没有可用的替换字」。
     """
-    book_obj = kb.book(book)
     used = set(exclude)
     common_known = getattr(kb, "char_category", {})
 
-    ordered = [ch for ch in book_obj.members(group) if ch in common_known]
-    ordered += [ch for ch in book_obj.members(group) if ch not in common_known]
+    members = kb.members(group, book)
+    ordered = [ch for ch in members if ch in common_known]
+    ordered += [ch for ch in members if ch not in common_known]
 
     out: List[str] = []
     for ch in ordered:
         if ch in used:
             continue
-        if tone in (平, 仄) and tone not in book_obj.tones(ch):
+        if tone in (平, 仄) and tone not in kb.tones(ch, book):
             continue
         out.append(ch)
         if len(out) >= limit:
@@ -86,10 +91,16 @@ def tone_label(tone: Optional[str]) -> str:
 
 
 def group_label(group: str, book: str) -> str:
-    """给韵部名补一个更易读的说明。"""
+    """给韵部名补上它所属的韵书，免得张冠李戴。
+
+    曾经这里只区分「平水韵 / 其它」，于是用《中华新韵》校验时，
+    建议里会写「不在主韵《词林正韵》十东」——指的是一本用不上的韵书。
+    """
     if book == PINGSHUI:
         return f"《平水韵》{group}"
-    return f"《词林正韵》{group}"
+    if book == CILIN:
+        return f"《词林正韵》{group}"
+    return f"《{book}》{group}"
 
 
 def rhyme_fix(
@@ -104,10 +115,19 @@ def rhyme_fix(
     if not main_group:
         return f"「{char}」未落在统一韵部中，无法给出换字建议。"
 
-    head = (
-        f"「{char}」不在主韵{group_label(main_group, book)}"
-        f"（该韵位需 {tone_label(tone)}）"
-    )
+    # 两种情况要分开说：韵部不对，还是韵部没问题、只是平仄不合。
+    # 早先一律写「不在主韵X」，于是把同部的字说成出韵——
+    # 例如《西江月》叶韵位用了个同部平声字，报告却说它「不在第七部」。
+    if main_group in kb.groups(char, book):
+        head = (
+            f"「{char}」属{group_label(main_group, book)}，韵部没有问题，"
+            f"但该韵位需 {tone_label(tone)}"
+        )
+    else:
+        head = (
+            f"「{char}」不在主韵{group_label(main_group, book)}"
+            f"（该韵位需 {tone_label(tone)}）"
+        )
     cand = candidates(kb, main_group, tone, book=book, exclude=set(used) | {char})
     if not cand:
         return head + "，而该韵部中没有可用的替换字，建议改换整句。"

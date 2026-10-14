@@ -7,7 +7,7 @@
 2. 四种首句式各生成一套诗谱，挑最贴合的一套
 3. 逐句比对平仄（含拗救判定）
 4. 分析押韵（平水韵）
-5. 分析对仗（颔联／颈联）
+5. 分析对仗（律诗的颔联／颈联必对，排律中间各联亦必对）
 6. 汇总评分与结论
 """
 
@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from . import duizhang as dz
 from . import patterns as pt
 from . import suggest
-from .knowledge import KnowledgeBase, 平, 仄, PINGSHUI
+from .knowledge import KnowledgeBase, 平, 仄, PINGSHUI, XINYUN
 from .parser import ParsedPoem, segment_by_lengths
 
 
@@ -50,7 +50,7 @@ class RhymeAnalysis:
 
 @dataclass
 class CoupletResult:
-    label: str            # 首联 / 颔联 / 颈联 / 尾联
+    label: str            # 首联 / 颔联 / 颈联 / 尾联 / 第 k 联（排律的中间各联）
     required: bool
     left_index: int
     right_index: int
@@ -248,9 +248,7 @@ def analyze_rhyme(kb: KnowledgeBase, res: PoemResult, book: str) -> RhymeAnalysi
             continue
         if ra.main_group and ra.main_group in f.groups:
             f.ok = True
-        elif f.is_first and any(
-            kb.rhyme_neighbours.get(ra.main_group, set()) & f.groups for _ in (0,)
-        ):
+        elif f.is_first and (kb.rhyme_neighbours.get(ra.main_group, set()) & f.groups):
             f.ok = True
             f.note = "首句借邻韵（借韵），传统允许"
         else:
@@ -279,14 +277,42 @@ def analyze_rhyme(kb: KnowledgeBase, res: PoemResult, book: str) -> RhymeAnalysi
 # ---------------------------------------------------------------- 对仗
 
 
+def _couplet_spec(n: int) -> List[Tuple[int, str, bool]]:
+    """给出各联的 (出句位置, 名称, 是否要求对仗)。
+
+    命名依传统：
+
+    * 律诗（8 句）只有四联，称「首联／颔联／颈联／尾联」，颔、颈两联必对；
+    * 绝句（4 句）两联，称「首联／尾联」，不要求对仗；
+    * 排律（10 句及以上）首尾之外一律称「第 k 联」，**中间各联都要求对仗**。
+
+    早先版本把 8 句以上一律套用四联命名，于是 10 句排律的第 7、8 句被错标成
+    「尾联」（后面明明还有第 9、10 句），第 9、10 句更是根本不进对仗分析。
+    """
+    starts = list(range(0, n - 1, 2))
+    if not starts:
+        return []
+    last = starts[-1]
+    spec: List[Tuple[int, str, bool]] = []
+    for k, start in enumerate(starts):
+        if start == 0:
+            label, required = "首联", False
+        elif start == last:
+            label, required = "尾联", False
+        elif n == 8 and k == 1:
+            label, required = "颔联", True
+        elif n == 8 and k == 2:
+            label, required = "颈联", True
+        else:
+            label, required = f"第{k + 1}联", True
+        spec.append((start, label, required))
+    return spec
+
+
 def analyze_couplets(kb: KnowledgeBase, res: PoemResult, book: str) -> List[CoupletResult]:
     n = len(res.clauses_text)
     out: List[CoupletResult] = []
-    if n >= 8:
-        spec = [(0, "首联", False), (2, "颔联", True), (4, "颈联", True), (6, "尾联", False)]
-    else:
-        spec = [(0, "首联", False), (2, "次联", False)]
-    for start, label, required in spec:
+    for start, label, required in _couplet_spec(n):
         if start + 1 >= n:
             continue
         cr = CoupletResult(
@@ -311,14 +337,21 @@ def _global_issues(kb: KnowledgeBase, res: PoemResult) -> List[pt.Issue]:
     unknown = res.all_unknown
     if unknown:
         chars = "".join(sorted({c.char for _, c in unknown}))
-        issues.append(
-            pt.Issue(
-                "提示",
-                "韵书未收录",
-                f"以下字不在平水韵数据中，未参与平仄判定：{chars}。"
-                "请查证后补充到 知识库/韵书/平水韵.json。",
+        # 措辞必须跟着韵书走：早先这里写死了「平水韵」，用「中华新韵」校验时
+        # 也会说「不在平水韵数据中 / 请补录到平水韵.json」，把人引向错误的方向。
+        if res.book == XINYUN:
+            detail = (
+                f"以下字未能在《{res.book}》中判定读音，未参与平仄判定：{chars}。"
+                "「中华新韵」是按普通话读音实时计算的，出现这种情况多为拼音库"
+                "未收录该字，可尝试更换写法或改用「平水韵」核对。"
             )
-        )
+        else:
+            detail = (
+                f"以下字不在《{res.book}》数据中，未参与平仄判定：{chars}。"
+                "请查证后补充到 知识库/韵书/平水韵.json"
+                "（《词林正韵》由平水韵推导，补平水韵即可同步）。"
+            )
+        issues.append(pt.Issue("提示", "韵书未收录", detail))
 
     ra = res.rhyme
     if ra and not ra.consistent:

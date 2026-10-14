@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from . import __version__, analyze
-from .knowledge import CILIN, PINGSHUI, XINYUN, KnowledgeBase, KnowledgeError
+from .ci import pattern_length, rhyme_seat_groups
+from .knowledge import CILIN, PINGSHUI, XINYUN, KnowledgeBase, KnowledgeError, 仄
 from . import report as rp
 
 
@@ -98,8 +99,10 @@ def verify_kb(kb: KnowledgeBase) -> int:
         problems.append(f"诗谱推导失败：{exc}")
 
     # 2. 各词牌的谱长度与标称字数是否一致
+    #    谱长一律由 ci.pattern_length 计算（它会剥掉顿号等分隔符），
+    #    这里不要再自己数一遍「平仄中」——两份实现迟早会分家。
     for name, spec in kb.cipai.items():
-        lengths = [sum(1 for c in g["谱"] if c in "平仄中") for g in spec.get("格律", [])]
+        lengths = [pattern_length(g["谱"]) for g in spec.get("格律", [])]
         total = sum(lengths)
         declared = spec.get("字数")
         if declared and total != declared:
@@ -109,6 +112,45 @@ def verify_kb(kb: KnowledgeBase) -> int:
                 f"词牌《{name}》句数 {len(spec.get('格律', []))} ≠ 标称 {spec['句数']}"
             )
     print(f"  ✔ 词牌谱长校验完毕（{len(kb.cipai)} 个）")
+
+    # 2b. 词谱的字符合法性、韵标记取值、以及「同一韵组内各韵位平仄自洽」。
+    #     这三条都是数据层面的不变量，靠肉眼看 JSON 很容易漏：
+    #     「同部仄韵」（叶韵）标记忘了加，校验就会把传世名篇当成出律。
+    for name, spec in kb.cipai.items():
+        grid = spec.get("格律", [])
+        for seq, entry in enumerate(grid, 1):
+            pu = entry.get("谱", "")
+            非法 = sorted({c for c in pu if c not in "平仄中、"})
+            if 非法:
+                problems.append(
+                    f"词牌《{name}》第 {seq} 句谱中含非法字符：{''.join(非法)}"
+                )
+            flag = entry.get("韵", 0)
+            if flag not in (0, 1, 2, 3, 4):
+                problems.append(
+                    f"词牌《{name}》第 {seq} 句的韵标记 {flag} 非法（应为 0–4 的整数）"
+                )
+        for seats in rhyme_seat_groups(grid):
+            for seat in seats:
+                tail = grid[seat].get("谱", "").rstrip("、")[-1:]
+                if grid[seat].get("韵") == 4 and tail != 仄:
+                    problems.append(
+                        f"词牌《{name}》第 {seat + 1} 句标为「同部仄韵」（韵标记 4），"
+                        f"但其谱尾是「{tail}」而非仄声"
+                    )
+            # 除叶韵位外，同一韵组内各韵位该押的平仄应当一致
+            非叶韵 = {
+                grid[i].get("谱", "").rstrip("、")[-1:]
+                for i in seats
+                if grid[i].get("韵") != 4
+            }
+            if len(非叶韵) > 1:
+                problems.append(
+                    f"词牌《{name}》第 {'、'.join(str(i + 1) for i in seats)} 句同属一个韵组，"
+                    f"但谱尾平仄不一致：{'／'.join(sorted(非叶韵))}"
+                    "（若确属平仄通押，应把该位标为韵标记 4）"
+                )
+    print("  ✔ 词谱字符、韵标记与韵组平仄自洽性校验完毕")
 
     # 3. 覆盖度交叉校验：对仗词类所收的常用字，应当都能在韵书中查到。
     #    这一条把「韵书漏收常用字」这类隐性缺口变成可见的提示——历史上正是

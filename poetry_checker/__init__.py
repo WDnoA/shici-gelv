@@ -22,7 +22,7 @@ from . import ci, checker, report
 from .knowledge import CILIN, PINGSHUI, XINYUN, KnowledgeBase, KnowledgeError
 from .parser import ParsedPoem, parse
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 __all__ = [
     "analyze",

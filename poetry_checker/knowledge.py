@@ -120,6 +120,12 @@ class KnowledgeBase:
         self.jinti: dict = {}
         # 字数类别("五言"/"七言") -> {(第二字, 收尾) -> 句式 dict}
         self.pattern_index: Dict[str, Dict[Tuple[str, str], dict]] = {}
+        # 字数类别 -> {谱 -> 句式 dict}，供 entry_of() 做 O(1) 反查
+        self.pattern_by_pu: Dict[str, Dict[str, dict]] = {}
+
+        # 《中华新韵》的「韵部 -> 字表」惰性索引。新韵按普通话读音实时计算，
+        # 知识库里没有字表；只有「韵脚换字建议」才需要它，故用 None 表示尚未归纳。
+        self._xinyun_index: Optional[Dict[str, List[str]]] = None
 
         # 词谱
         self.cipai: Dict[str, dict] = {}
@@ -286,7 +292,7 @@ class KnowledgeBase:
         if XINYUN in self.rhyme_books:
             return self.rhyme_books[XINYUN]
         try:
-            from pypinyin import Style, lazy_pinyin
+            import pypinyin  # noqa: F401  —— 此处只探测是否可导入
         except ImportError as exc:
             raise KnowledgeError(
                 "使用「中华新韵」需要安装 pypinyin：pip install pypinyin"
@@ -302,15 +308,22 @@ class KnowledgeBase:
         # 只为已出现过的字建立索引太麻烦，这里采取惰性查表的做法：
         # 先缓存映射关系，字 → 韵通过 resolve_xinyun() 动态计算。
         self._xinyun_final_map = final_to_group
-        self._xinyun_cache: Dict[str, Set[Tuple[str, str]]] = {}
+        # 用 setdefault：若缓存容器已由 xinyun_lookup() 提前建好，绝不能在这里
+        # 覆盖——否则刚写入的缓存会连同旧 dict 一起被丢弃。
+        self.__dict__.setdefault("_xinyun_cache", {})
         self.rhyme_books[XINYUN] = book
         return book
 
     def xinyun_lookup(self, char: str) -> Set[Tuple[str, str]]:
         """返回中华新韵下该字的 {(韵部, 平仄)}。"""
+        # 先确保「韵母→韵部」映射与缓存容器就绪。早先这里写的是
+        # getattr(self, "_xinyun_cache", {})：首次调用时属性还不存在，拿到的是
+        # 一个临时 dict，缓存写进去随即丢弃；而 load_xinyun() 稍后又会把该属性
+        # 重新赋值，等于再丢一次——两头一夹，缓存永远命中不了。
+        self.load_xinyun()
         from pypinyin import Style, lazy_pinyin
 
-        cache: Dict[str, Set[Tuple[str, str]]] = getattr(self, "_xinyun_cache", {})
+        cache: Dict[str, Set[Tuple[str, str]]] = self._xinyun_cache
         if char in cache:
             return cache[char]
 
@@ -340,6 +353,50 @@ class KnowledgeBase:
             return mapping.get("-i")
         return mapping.get(f)
 
+    def xinyun_groups_index(self) -> Dict[str, List[str]]:
+        """《中华新韵》的「韵部 -> 字表」，按需归纳一次并缓存。
+
+        新韵是按普通话读音**实时计算**的，知识库里并没有字表，而「韵脚换字建议」
+        必须知道某个韵部里有哪些字。这里取《平水韵》收录的八千余字作为
+        「诗词用字」的近似（顺带沿用它在韵书中原有的字序，常用字在前），
+        一次性批量求拼音后按韵部归类。
+
+        为什么批量：``lazy_pinyin`` 接受列表，一次调用即可算完全部字，
+        实测比逐字调用快两个数量级（全量约 0.3 s）。而且只有真的需要给
+        换字建议时才会算这一次，常规校验的速度不受影响。
+        """
+        if self._xinyun_index is not None:
+            return self._xinyun_index
+        self.load_xinyun()
+        from pypinyin import Style, lazy_pinyin
+
+        index: Dict[str, List[str]] = {}
+        chars = list(self.rhyme_books[PINGSHUI].entries)
+        try:
+            finals = lazy_pinyin(chars, style=Style.FINALS, strict=False)
+            initials = lazy_pinyin(chars, style=Style.INITIALS, strict=False)
+        except Exception:  # pragma: no cover
+            finals = initials = []
+        for ch, fin, ini in zip(chars, finals, initials):
+            group = self._xinyun_group(ini, fin)
+            if group:
+                index.setdefault(group, []).append(ch)
+        self._xinyun_index = index
+        return index
+
+    # ------------------------------------------------------------ 韵部字表
+
+    def members(self, group: str, book: str = PINGSHUI) -> List[str]:
+        """指定韵书里该韵部的全部字，按韵书原有次序。
+
+        统一入口的意义：三本韵书的「字表」来源不同——平水韵/词林正韵有现成的
+        字表，中华新韵则是现按读音归纳的。调用方（改字建议）只关心「这个韵部
+        有哪些字」，不该每处都自己判断一次韵书类型。
+        """
+        if book == XINYUN:
+            return list(self.xinyun_groups_index().get(group, ()))
+        return self.book(book).members(group)
+
     # ------------------------------------------------------------ 近体诗格律
 
     def _load_jinti(self) -> None:
@@ -347,9 +404,12 @@ class KnowledgeBase:
         self.jinti = data
         for kind, entries in data.get("基本句式", {}).items():
             index: Dict[Tuple[str, str], dict] = {}
+            by_pu: Dict[str, dict] = {}
             for entry in entries:
                 index[(entry["第二字"], entry["收尾"])] = entry
+                by_pu[entry["谱"]] = entry
             self.pattern_index[kind] = index
+            self.pattern_by_pu[kind] = by_pu
 
     # ------------------------------------------------------------ 词谱
 
